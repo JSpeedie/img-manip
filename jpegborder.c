@@ -96,6 +96,7 @@ int write_image(char * filepath, unsigned char * image, int w, int h, \
 	cinfo.in_color_space = colorspace;
 	/* TODO: What are the defaults? */
 	jpeg_set_defaults(&cinfo);
+	jpeg_set_quality(&cinfo, 100, TRUE);
 	jpeg_start_compress(&cinfo, TRUE);
 
 	/* Write the resized image, row by row */
@@ -127,14 +128,16 @@ int image_add_border(unsigned char * image, int iw, int ih, \
 	/* If makesquare is set, adjust the other dimension
 	 * to be the same size... */
 	if (makesquare == 1) {
-		/* ...but only if one, and only one of the ratios is set... */
-		if (widthratio == 1.0 && heightratio != 1.0) {
-			ow = oh;
-			/* border_w = ow - iw; */
-		}
-		if (heightratio == 1.0 && widthratio != 1.0) {
-			oh = ow;
-			/* border_h = oh - ih; */
+		/* ...but only if one, and only one of the ratios is set ... */
+		if (widthratio == 1.0 && heightratio != 1.0) ow = oh;
+		if (heightratio == 1.0 && widthratio != 1.0) oh = ow;
+		/* ... If neither ratio is set ... */
+		if (heightratio == 1.0 && widthratio == 1.0) {
+			if (iw > ih) {
+				oh = iw;
+			} else {
+				ow = ih;
+			}
 		}
 	}
 	/* The height/width of the border in pixels */
@@ -203,7 +206,7 @@ int main(int argc, char **argv) {
 	double heightratio = 1;
 	double widthratio = 1;
 	char makesquare = 0;
-	char *inputfilepath;
+	char *inputfilepath = NULL;
 	char *outputfilepath = NULL;
 
 	while ((opt = getopt_long(argc, argv, opt_string, opt_table, NULL)) \
@@ -234,11 +237,26 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	if (inputfilepath == NULL) {
+		fprintf(stderr, \
+			"Error: no input option was given! Please use the -i flag!\n");
+		return -1;
+	}
+
 	if (outputfilepath == NULL) {
 		fprintf(stderr, \
 			"Error: no output option was given! Please use the -o or -O flags!\n");
-		free(inputfilepath);
-		free(outputfilepath);
+		if (inputfilepath != NULL) free(inputfilepath);
+		return -1;
+	}
+
+	if (widthratio != 1.0 && heightratio != 1.0 && makesquare == 1) {
+		fprintf(stderr, \
+			"Error: cannot make square when both a height and width " \
+			"are specified! Please use only one of {-w, -h}, when " \
+			"using the -s flag!\n");
+		if (inputfilepath != NULL) free(inputfilepath);
+		if (outputfilepath != NULL) free(outputfilepath);
 		return -1;
 	}
 
