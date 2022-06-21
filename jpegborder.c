@@ -161,17 +161,13 @@ int resize_image_dimensions(double widthratio, double heightratio, char makesqua
 			int ry = h * output_image_w * input_image_num_comp;
 
 			/* If the iteration is /between/ the borders */
-			if (h > border_h && h <= (output_image_h - border_h)
-				&& w > border_w && w <= (output_image_w - border_w)) {
+			if (h >= border_h && h < (output_image_h - border_h)
+				&& w >= border_w && w < (output_image_w - border_w)) {
 
 				/* Input image x pixel memory offset,
-				 * input image y pixel offset.
-				 * (h - border_h - 1), and (w - border_w - 1) both subtract 1
-				 * because w/h are always larger than the border, but we want
-				 * the (0th, 0th) pixel when we start iterating through the
-				 * original, raw image */
-				int ix = (w - border_w - 1) * input_image_num_comp;
-				int iy = (h - border_h - 1) * input_image_w * input_image_num_comp;
+				 * input image y pixel offset. */
+				int ix = (w - border_w) * input_image_num_comp;
+				int iy = (h - border_h) * input_image_w * input_image_num_comp;
 
 				// TODO: grayscale images only have luminance?
 				/* Red pixel */
