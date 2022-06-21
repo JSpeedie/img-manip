@@ -6,17 +6,8 @@
 #include <jpeglib.h>
 
 
-unsigned char *input_image_data = NULL;
-unsigned char *resized_image_data = NULL;
-int input_image_w;
-int input_image_h;
-int input_image_num_comp;
-J_COLOR_SPACE input_image_colorspace;
-int output_image_w;
-int output_image_h;
-
-
-int read_image(char * filepath) {
+int read_image(char * filepath, unsigned char ** image, int * ret_w, \
+	int * ret_h, int * ret_num_comp, J_COLOR_SPACE * ret_colorspace) {
 
 	struct jpeg_decompress_struct cinfo;
 	struct jpeg_error_mgr jerr;
@@ -39,13 +30,13 @@ int read_image(char * filepath) {
 	jpeg_start_decompress(&cinfo);
 
 	/* Read some information about the image from the file */
-	input_image_w = cinfo.image_width;
-	input_image_h = cinfo.image_height;
-	input_image_num_comp = cinfo.num_components;
-	input_image_colorspace = cinfo.out_color_space;
+	*(ret_w) = cinfo.image_width;
+	*(ret_h) = cinfo.image_height;
+	*(ret_num_comp) = cinfo.num_components;
+	*(ret_colorspace) = cinfo.out_color_space;
 
 	/* Make space to store the raw image data (the actual pixels) */
-	input_image_data = (unsigned char *) \
+	*(image) = (unsigned char *) \
 		malloc(cinfo.image_width * cinfo.image_height * cinfo.num_components);
 	/* Also make space to store a row of the image for reading purposes */
 	row_pointer[0] = (unsigned char *) \
@@ -64,7 +55,7 @@ int read_image(char * filepath) {
 		jpeg_read_scanlines(&cinfo, row_pointer, 1);
 
 		for (unsigned long h = 0; h < size_of_row; h++) {
-			input_image_data[m + h] = row_pointer[0][h];
+			(*(image))[m + h] = row_pointer[0][h];
 		}
 	}
 
@@ -78,7 +69,8 @@ int read_image(char * filepath) {
 }
 
 
-int write_image(char * filepath) {
+int write_image(char * filepath, unsigned char * image, int w, int h, \
+	int num_comp, J_COLOR_SPACE colorspace) {
 
 	struct jpeg_compress_struct cinfo;
 	struct jpeg_error_mgr jerr;
@@ -98,10 +90,10 @@ int write_image(char * filepath) {
 	jpeg_create_compress(&cinfo);
 	jpeg_stdio_dest(&cinfo, f);
 	/* Setting the parameters of the output file here */
-	cinfo.image_width = output_image_w;
-	cinfo.image_height = output_image_h;
-	cinfo.input_components = input_image_num_comp;
-	cinfo.in_color_space = input_image_colorspace;
+	cinfo.image_width = w;
+	cinfo.image_height = h;
+	cinfo.input_components = num_comp;
+	cinfo.in_color_space = colorspace;
 	/* TODO: What are the defaults? */
 	jpeg_set_defaults(&cinfo);
 	jpeg_start_compress(&cinfo, TRUE);
@@ -112,7 +104,7 @@ int write_image(char * filepath) {
 		 * for the mth row begins. */
 		int m = \
 			cinfo.next_scanline * cinfo.image_width * cinfo.input_components;
-		row_pointer[0] = &resized_image_data[m];
+		row_pointer[0] = &image[m];
 		jpeg_write_scanlines(&cinfo, row_pointer, 1);
 	}
 
@@ -125,66 +117,68 @@ int write_image(char * filepath) {
 }
 
 
-int resize_image_dimensions(double widthratio, double heightratio, char makesquare) {
-	output_image_w = input_image_w * widthratio;
-	output_image_h = input_image_h * heightratio;
+int image_add_border(unsigned char * image, int iw, int ih, \
+	int i_num_comp, unsigned char ** resized_image, double widthratio, \
+	double heightratio, char makesquare, int * ret_ow, int * ret_oh) {
 
-	/* If makesquare is set, adjust the other dimension to be the same size... */
+	int ow = iw * widthratio;
+	int oh = ih * heightratio;
+
+	/* If makesquare is set, adjust the other dimension
+	 * to be the same size... */
 	if (makesquare == 1) {
 		/* ...but only if one, and only one of the ratios is set... */
 		if (widthratio == 1.0 && heightratio != 1.0) {
-			output_image_w = output_image_h;
-			/* border_w = output_image_w - input_image_w; */
+			ow = oh;
+			/* border_w = ow - iw; */
 		}
 		if (heightratio == 1.0 && widthratio != 1.0) {
-			output_image_h = output_image_w;
-			/* border_h = output_image_h - input_image_h; */
+			oh = ow;
+			/* border_h = oh - ih; */
 		}
 	}
 	/* The height/width of the border in pixels */
-	int border_h = (output_image_h - input_image_h) / 2.0;
-	int border_w = (output_image_w - input_image_w) / 2.0;
+	int border_h = (oh - ih) / 2.0;
+	int border_w = (ow - iw) / 2.0;
 	/* Adjust output dimensions to be precisely the size of the original image
 	 * + 2 borders on the top/bottom, 2 borders on the sides */
-	output_image_w = input_image_w + (2 * border_w);
-	output_image_h = input_image_h + (2 * border_h);
-
-	resized_image_data = (unsigned char *) \
-		malloc(output_image_w * output_image_h * input_image_num_comp);
+	ow = iw + (2 * border_w);
+	oh = ih + (2 * border_h);
+	*(ret_ow) = ow;
+	*(ret_oh) = oh;
+	*(resized_image) = (unsigned char *) malloc(ow * oh * i_num_comp);
 
 	/* Read through image one pixel, (i, j) at a time */
-	for (int h = 0; h < output_image_h; h++) {
-		for (int w = 0; w < output_image_w; w++) {
+	for (int h = 0; h < oh; h++) {
+		for (int w = 0; w < ow; w++) {
 			/* Resized image x pixel memory offset,
 			 * resized image y pixel offset */
-			int rx = w * input_image_num_comp;
-			int ry = h * output_image_w * input_image_num_comp;
+			int rx = w * i_num_comp;
+			int ry = h * ow * i_num_comp;
 
 			/* If the iteration is /between/ the borders */
-			if (h >= border_h && h < (output_image_h - border_h)
-				&& w >= border_w && w < (output_image_w - border_w)) {
+			if (h >= border_h && h < (oh - border_h)
+				&& w >= border_w && w < (ow - border_w)) {
 
 				/* Input image x pixel memory offset,
 				 * input image y pixel offset. */
-				int ix = (w - border_w) * input_image_num_comp;
-				int iy = (h - border_h) * input_image_w * input_image_num_comp;
+				int ix = (w - border_w) * i_num_comp;
+				int iy = (h - border_h) * iw * i_num_comp;
 
 				// TODO: grayscale images only have luminance?
 				/* Red pixel */
-				resized_image_data[ry + rx + 0] = \
-					input_image_data[iy + ix + 0];
+				(*(resized_image))[ry + rx + 0] = image[iy + ix + 0];
 				/* Green pixel */
-				resized_image_data[ry + rx + 1] = \
-					input_image_data[iy + ix + 1];
+				(*(resized_image))[ry + rx + 1] = image[iy + ix + 1];
 				/* Blue pixel */
-				resized_image_data[ry + rx + 2] = \
-					input_image_data[iy + ix + 2];
-			/* Else the loop is within the bounds of the borders, make the pixel white */
+				(*(resized_image))[ry + rx + 2] = image[iy + ix + 2];
+			/* Else the loop is within the bounds of the borders,
+			 * make the pixel white */
 			} else {
 				// TODO: grayscale images only have luminance?
-				resized_image_data[ry + rx + 0] = 255; /* Red pixel */
-				resized_image_data[ry + rx + 1] = 255; /* Green pixel */
-				resized_image_data[ry + rx + 2] = 255; /* Blue pixel */
+				(*(resized_image))[ry + rx + 0] = 255; /* Red pixel */
+				(*(resized_image))[ry + rx + 1] = 255; /* Green pixel */
+				(*(resized_image))[ry + rx + 2] = 255; /* Blue pixel */
 			}
 		}
 	}
@@ -212,7 +206,9 @@ int main(int argc, char **argv) {
 	char *inputfilepath;
 	char *outputfilepath = NULL;
 
-	while ((opt = getopt_long(argc, argv, opt_string, opt_table, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, opt_string, opt_table, NULL)) \
+		!= -1) {
+
 		switch (opt) {
 			case 'i':
 				inputfilepath = malloc(strlen(optarg) + 1);
@@ -246,10 +242,34 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	if (0 != read_image(inputfilepath)) return -1;
-	if (0 != resize_image_dimensions(widthratio, heightratio, makesquare)) return -2;
-	if (0 != write_image(outputfilepath)) return -3;
+	unsigned char *input_image_data = NULL;
+	unsigned char *resized_image_data = NULL;
+	int input_image_w;
+	int input_image_h;
+	int input_image_num_comp;
+	J_COLOR_SPACE input_image_colorspace;
+
+	if (0 != read_image(inputfilepath, &input_image_data, &input_image_w, \
+		&input_image_h, &input_image_num_comp, &input_image_colorspace)) {
+		return -1;
+	}
+
 	free(inputfilepath);
+	int output_image_w;
+	int output_image_h;
+
+	if (0 != image_add_border(input_image_data, input_image_w, \
+		input_image_h, input_image_num_comp, &resized_image_data, widthratio, \
+		heightratio, makesquare, &output_image_w, &output_image_h)) return -2;
+
+	free(input_image_data);
+
+	if (0 != write_image(outputfilepath, resized_image_data, output_image_w, \
+		output_image_h, input_image_num_comp, input_image_colorspace)) {
+		return -3;
+	}
+
+	free(resized_image_data);
 	free(outputfilepath);
 
 	return 0;
