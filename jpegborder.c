@@ -193,18 +193,35 @@ int image_add_border(unsigned char * image, int iw, int ih, \
 int main(int argc, char **argv) {
 	int opt;
 	struct option opt_table[] = {
-		{ "input",          required_argument,  NULL,  'i' },
-		{ "height",         required_argument,  NULL,  'h' },
-		{ "output",         required_argument,  NULL,  'o' },
-		{ "overwrite",      no_argument,        NULL,  'O' },
-		{ "square",         no_argument,        NULL,  's' },
-		{ "width",          required_argument,  NULL,  'w' },
+		{ "input",              required_argument,  NULL,  'i' },
+		{ "height",             required_argument,  NULL,  'h' },
+		{ "largest-dimension",  required_argument,  NULL,  'L' },
+		{ "output",             required_argument,  NULL,  'o' },
+		{ "overwrite",          no_argument,        NULL,  'O' },
+		{ "square",             no_argument,        NULL,  's' },
+		{ "smallest-dimension", required_argument,  NULL,  'S' },
+		{ "width",              required_argument,  NULL,  'w' },
 		{ 0, 0, 0, 0 }
 	};
-	char opt_string[] = { "i:h:o:Osw:" };
+	char opt_string[] = { "i:h:L:o:OsS:w:" };
+
+	/* A little array that stores chars representing ratio flags in
+	 * the order that they were specified on the commandline. This
+	 * is necessary so the program can give priority to flags specified
+	 * later in the call. */
+	int order_inc = 0;
+	char order[4];
+	/* Initialize array to (essentially) "null" values */
+	for (size_t i = 0; i < sizeof(order); i++) {
+		order[i] = -1;
+	}
 
 	double heightratio = 1;
 	double widthratio = 1;
+	double smallestsideratio = 1;
+	double largestsideratio = 1;
+	double finalheightratio = 1;
+	double finalwidthratio = 1;
 	char makesquare = 0;
 	char *inputfilepath = NULL;
 	char *outputfilepath = NULL;
@@ -219,6 +236,13 @@ int main(int argc, char **argv) {
 				break;
 			case 'h':
 				heightratio = strtod(optarg, NULL);
+				order[order_inc] = 'h';
+				order_inc++;
+				break;
+			case 'L':
+				largestsideratio = strtod(optarg, NULL);
+				order[order_inc] = 'L';
+				order_inc++;
 				break;
 			case 'o':
 				outputfilepath = malloc(strlen(optarg) + 1);
@@ -231,8 +255,15 @@ int main(int argc, char **argv) {
 			case 's':
 				makesquare = 1;
 				break;
+			case 'S':
+				smallestsideratio = strtod(optarg, NULL);
+				order[order_inc] = 'S';
+				order_inc++;
+				break;
 			case 'w':
 				widthratio = strtod(optarg, NULL);
+				order[order_inc] = 'w';
+				order_inc++;
 				break;
 		}
 	}
@@ -272,13 +303,37 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
+	for (int i = 0; i < order_inc; i++) {
+		switch (order[i]) {
+			case 'w':
+				finalwidthratio = widthratio;
+				break;
+			case 'h':
+				finalheightratio = heightratio;
+				break;
+			case 'L':
+				if (input_image_h >= input_image_w) \
+					finalheightratio = largestsideratio;
+				if (input_image_w >= input_image_h) \
+					finalwidthratio = largestsideratio;
+				break;
+			case 'S':
+				if (input_image_h <= input_image_w) \
+					finalheightratio = smallestsideratio;
+				if (input_image_w <= input_image_h) \
+					finalwidthratio = smallestsideratio;
+				break;
+		}
+	}
+
 	free(inputfilepath);
 	int output_image_w;
 	int output_image_h;
 
 	if (0 != image_add_border(input_image_data, input_image_w, \
-		input_image_h, input_image_num_comp, &resized_image_data, widthratio, \
-		heightratio, makesquare, &output_image_w, &output_image_h)) return -2;
+		input_image_h, input_image_num_comp, &resized_image_data, \
+		finalwidthratio, finalheightratio, makesquare, \
+		&output_image_w, &output_image_h)) return -2;
 
 	free(input_image_data);
 
